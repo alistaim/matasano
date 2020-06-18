@@ -4,17 +4,19 @@ mod tests {
     extern crate hex;
     extern crate openssl;
     extern crate rand;
+    extern crate log;
+    extern crate pretty_env_logger;
 
-    use self::openssl::symm::decrypt;
     use self::rand::Rng;
-    use hashbrown::HashMap;
+    use log::{info, error};
+    use hashbrown::{HashMap};
     use itertools::Itertools;
     use openssl::symm::{Cipher, Crypter, Mode};
     use std::borrow::Borrow;
     use std::cmp::Ordering;
     use std::error::Error;
     use std::fs::File;
-    use std::io::{BufRead, BufReader, Bytes, Read};
+    use std::io::{BufRead, BufReader, Read};
     use std::path::Path;
 
     #[test]
@@ -67,7 +69,7 @@ mod tests {
                         s => file_scores.push(s),
                     }
                 }
-                Err(e) => eprintln!("Error reading line from file {}", e.description()),
+                Err(e) => error!("Error reading line from file {}", e.description()),
             }
         }
 
@@ -99,6 +101,7 @@ mod tests {
 
     #[test]
     fn test_set1_challenge_6() {
+        pretty_env_logger::init();
         let lhs_string = "this is a test";
         let rhs_string = "wokka wokka!!!";
         let test_score = compute_hamming_distance(lhs_string.as_bytes(), rhs_string.as_bytes());
@@ -114,7 +117,7 @@ mod tests {
         let mut s = String::new();
         match input.read_to_string(&mut s) {
             Err(why) => panic!("Could not read {}:{}", path.display(), why.description()),
-            Ok(_) => println!("Read contents of {}", path.display()),
+            Ok(_) => info!("Read contents of {}", path.display()),
         }
 
         let b64_result = match base64::decode(s.replace('\n', "").as_bytes()) {
@@ -132,7 +135,7 @@ mod tests {
         }
 
         norm_keysizes.sort_by(|a, b| a.1.partial_cmp(b.1.borrow()).unwrap_or(Ordering::Equal));
-        println!(
+        info!(
             "Shortest distance found with key size {} : {}",
             norm_keysizes[0].1, norm_keysizes[0].0
         );
@@ -177,7 +180,7 @@ mod tests {
 
         let clear_text =
             String::from_utf8(clear_text_vec).expect("Could not convert final cleartext result");
-        println!("Final Cleartext =>\n{}", clear_text);
+        info!("Final Cleartext =>\n{}", clear_text);
 
         assert_eq!(
             key_string.expect("key value is missing for comparison"),
@@ -187,21 +190,23 @@ mod tests {
 
     #[test]
     fn test_set1_challenge_7() {
+        pretty_env_logger::init();
         let key = "YELLOW SUBMARINE";
 
         let raw_file_contents = read_file_to_string("/Users/mclean/Downloads/7.txt");
 
         let b64_decode = b64decode_to_vec(raw_file_contents);
 
-        let output_cleartext = aes_ecb_128(key, &b64_decode, false);
+        let output_cleartext = aes_ecb_128(&key.as_bytes().to_vec(), &b64_decode, false);
         let test_string = String::from("Hello my name i");
-        let output_test = aes_ecb_128(key, &test_string.into_bytes(), true);
+        let _output_test = aes_ecb_128(&key.as_bytes().to_vec(), &test_string.into_bytes(), true);
 
         assert_eq!(output_cleartext.len(), 2876);
     }
 
     #[test]
     fn test_set1_challenge_8() {
+        pretty_env_logger::init();
         let bufread_lines = get_buffered_lines(Path::new("/Users/mclean/Downloads/8.txt"));
         let mut target_line_no = 0;
 
@@ -213,7 +218,7 @@ mod tests {
                         target_line_no = line_no + 1;
                     }
                 }
-                Err(_e) => eprintln!("Error reading line from file no. {}", line_no),
+                Err(_e) => error!("Error reading line from file no. {}", line_no),
             }
         }
         assert_eq!(target_line_no, 133);
@@ -230,27 +235,33 @@ mod tests {
 
     #[test]
     fn test_set2_challenge_10() {
+        pretty_env_logger::init();
         let plaintext_test = "Hello my name is Alistair.";
         let key = "YELLOW SUBMARINE";
 
         // Sanity check CBC mode on test data
         let iv: Vec<u8> = vec![0u8; 16];
-        let cipher_text = aes_cbc_128_enc(key, &plaintext_test.as_bytes().to_vec(), &iv);
-        let test_result = aes_cbc_128_dec(key, &cipher_text, &iv);
+        let cipher_text = aes_cbc_128_enc(
+            &key.as_bytes().to_vec(),
+            &plaintext_test.as_bytes().to_vec(),
+            &iv,
+        );
+        let test_result = aes_cbc_128_dec(&key.as_bytes().to_vec(), &cipher_text, &iv);
         assert_eq!(test_result, plaintext_test.as_bytes());
 
         // Ok lets read in the file now and decrypt it
         let p = Path::new("/Users/mclean/Downloads/10.txt");
         let mut fh = File::open(p).expect("Could not open file.");
         let mut contents = String::new();
-        fh.read_to_string(&mut contents);
+        fh.read_to_string(&mut contents)
+            .expect("Could not read from file.");
 
         let input_bytes = base64::decode(contents.replace('\n', "").as_bytes())
             .expect("Could not base64 decode file.");
-        let final_result = aes_cbc_128_dec(key, &input_bytes, &iv);
+        let final_result = aes_cbc_128_dec(&key.as_bytes().to_vec(), &input_bytes, &iv);
         let result_string =
             String::from_utf8(final_result).expect("Could not parse UTF-8 String from input");
-        println!("{}", result_string);
+        info!("{}", result_string);
         assert_eq!(
             result_string[0..33],
             String::from("I'm back and I'm ringin' the bell")
@@ -259,19 +270,52 @@ mod tests {
 
     #[test]
     fn test_set2_challenge_11() {
-        for i in 0..100 {
-            let some_random_input = create_random_bytes(120);
+        let mut encoded_ecb = 0;
+        let mut encoded_cbc = 0;
+        let some_random_input =
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                .as_bytes().to_vec();
+
+        for _i in 0..10000 {
             let result = encryption_oracle(&some_random_input);
             if is_ecb_mode(&result) {
-                println!("Encoded in ECB");
+                encoded_ecb += 1;
             } else {
-                println!("Encoded in CBC");
+                encoded_cbc += 1;
             }
+        }
+
+        let crypt_ratio = encoded_cbc as f32 / encoded_ecb as f32;
+        info!("Crypt Ratio = {}", crypt_ratio);
+        assert_eq!((crypt_ratio < 1.2), true);
+    }
+
+    fn encryption_oracle(plaintext: &Vec<u8>) -> Vec<u8> {
+        let mut rng = rand::thread_rng();
+        let random_bytes_upfront = create_random_bytes(rng.gen_range(5, 11));
+        let random_bytes_backend = create_random_bytes(rng.gen_range(5, 11));
+        let random_aes_key = generate_random_aes_key();
+        let mut expanded_plaintext = Vec::with_capacity(
+            plaintext.len() + random_bytes_upfront.len() + random_bytes_backend.len(),
+        );
+        expanded_plaintext.extend(random_bytes_upfront.iter());
+        expanded_plaintext.extend(plaintext.iter());
+        expanded_plaintext.extend(random_bytes_backend.iter());
+
+        let decider = rng.gen_bool(0.5);
+        if decider {
+            aes_ecb_128(&random_aes_key, &expanded_plaintext, true)
+        } else {
+            aes_cbc_128_enc(
+                &random_aes_key,
+                &expanded_plaintext,
+                &create_random_bytes(16),
+            )
         }
     }
 
-    fn encryption_oracle(input: &Vec<u8>) -> Vec<u8> {
-        vec![]
+    fn generate_random_aes_key() -> Vec<u8> {
+        create_random_bytes(16)
     }
 
     fn create_random_bytes(no_of_bytes: usize) -> Vec<u8> {
@@ -284,32 +328,36 @@ mod tests {
     }
 
     fn is_ecb_mode(input: &Vec<u8>) -> bool {
-        let mut chunk_vector: Vec<_> = input.chunks(16).map(|c| c.to_vec()).collect();
-        chunk_vector.sort();
-        let pre_dedupe = chunk_vector.len();
-        chunk_vector.dedup_by(|a, b| a.eq(&b));
-        let post_dedupe = chunk_vector.len();
+        let mut vector_set = std::collections::HashSet::new();
+        let chunk_vector: Vec<_> = input.chunks(16).map(|c| c.to_vec()).collect();
+        let chunk_vector_len = chunk_vector.len();
+        vector_set.extend(chunk_vector.iter());
 
-        if (post_dedupe as f32 / pre_dedupe as f32) < 1.0 {
+        if vector_set.len() < chunk_vector_len {
             true
         } else {
             false
         }
     }
 
-    fn aes_ecb_128(key: &str, input_bytes: &Vec<u8>, encrypt: bool) -> Vec<u8> {
+    fn aes_ecb_128(key: &Vec<u8>, input_bytes: &Vec<u8>, encrypt: bool) -> Vec<u8> {
         let cipher = Cipher::aes_128_ecb();
         if encrypt {
-            openssl::symm::encrypt(cipher, key.as_bytes(), None, input_bytes.as_slice())
+            openssl::symm::encrypt(cipher, key, None, input_bytes.as_slice())
                 .expect("Could not encrypt using AES ECB 128 Mode.")
         } else {
-            openssl::symm::decrypt(cipher, key.as_bytes(), None, input_bytes.as_slice())
+            openssl::symm::decrypt(cipher, key, None, input_bytes.as_slice())
                 .expect("Could not decrypt using AES ECB 128 Mode.")
         }
     }
 
-    fn aes_ecb_128_crypt(key: &str, input_bytes: &Vec<u8>, encrypt: Mode, pad: bool) -> Vec<u8> {
-        let mut c = Crypter::new(Cipher::aes_128_ecb(), encrypt, key.as_bytes(), None)
+    fn aes_ecb_128_crypt(
+        key: &Vec<u8>,
+        input_bytes: &Vec<u8>,
+        encrypt: Mode,
+        pad: bool,
+    ) -> Vec<u8> {
+        let mut c = Crypter::new(Cipher::aes_128_ecb(), encrypt, key, None)
             .expect("Cannot create ECB Mode cipher.");
         let mut msg = vec![0; input_bytes.len() + Cipher::aes_128_ecb().block_size()];
         let mut count = 0;
@@ -333,7 +381,7 @@ mod tests {
         plain_block
     }
 
-    fn aes_cbc_128_enc(key: &str, plaintext: &Vec<u8>, iv: &Vec<u8>) -> Vec<u8> {
+    fn aes_cbc_128_enc(key: &Vec<u8>, plaintext: &Vec<u8>, iv: &Vec<u8>) -> Vec<u8> {
         let mut ret = vec![];
         let mut prev_block = iv.clone();
         let padded_plaintext = pad_bytes(
@@ -349,7 +397,7 @@ mod tests {
         ret
     }
 
-    fn aes_cbc_128_dec(key: &str, ciphertext: &Vec<u8>, iv: &Vec<u8>) -> Vec<u8> {
+    fn aes_cbc_128_dec(key: &Vec<u8>, ciphertext: &Vec<u8>, iv: &Vec<u8>) -> Vec<u8> {
         let mut ret = vec![];
         let mut prev_block = iv.clone();
         for i in ciphertext.chunks(16) {
@@ -394,7 +442,7 @@ mod tests {
         let mut raw_file_contents = String::new();
         match input.read_to_string(&mut raw_file_contents) {
             Ok(_rez) => (),
-            Err(e) => eprintln!("Could not read file {}", e.description()),
+            Err(e) => error!("Could not read file {}", e.description()),
         }
         raw_file_contents
     }
@@ -455,7 +503,7 @@ mod tests {
         let mut score = 0;
         for t in input_bytes {
             match score_map.get(&t) {
-                Some(value) => score += *value,
+                Some(value) => score += value,
                 None => score += 0,
             }
         }
@@ -476,6 +524,10 @@ mod tests {
     }
 }
 
+extern crate pretty_env_logger;
+#[macro_use] extern crate log;
+
 fn main() {
-    println!("Run the tests !");
+    pretty_env_logger::init();
+    info!("Run the tests !");
 }
