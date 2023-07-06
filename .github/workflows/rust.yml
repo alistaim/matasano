@@ -16,7 +16,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install lib-ssl
-      run: apt install libssl-dev
+      run: sudo apt install libssl-dev
 
   build:
     runs-on: ubuntu-latest
