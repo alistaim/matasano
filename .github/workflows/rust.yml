@@ -10,10 +10,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
 
+  deps:
     runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install lib-ssl
+      run: apt install libssl-dev
 
+  build:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
     - name: Build
